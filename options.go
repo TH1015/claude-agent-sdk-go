@@ -5,8 +5,8 @@ import (
 	"io"
 	"os"
 
-	"github.com/severity1/claude-agent-sdk-go/internal/control"
-	"github.com/severity1/claude-agent-sdk-go/internal/shared"
+	"github.com/TH1015/claude-agent-sdk-go/internal/control"
+	"github.com/TH1015/claude-agent-sdk-go/internal/shared"
 )
 
 // Options contains configuration for Claude Code CLI interactions.
@@ -252,6 +252,37 @@ func WithContinueConversation(continueConversation bool) Option {
 func WithResume(sessionID string) Option {
 	return func(o *Options) {
 		o.Resume = &sessionID
+	}
+}
+
+// WithSessionStore attaches a SessionStore that mirrors session transcripts to
+// an external backend (Redis, S3, a database, ...), enabling resume across
+// hosts. When paired with WithResume or WithContinueConversation, the SDK
+// loads the session from the store into a temporary config dir so the CLI can
+// resume it.
+//
+// SessionStore cannot be combined with WithEnableFileCheckpointing (checkpoint
+// blobs are local-disk only and would diverge from the mirrored transcript).
+func WithSessionStore(store SessionStore) Option {
+	return func(o *Options) {
+		o.SessionStore = store
+	}
+}
+
+// WithSessionStoreFlush controls how eagerly the mirror batcher flushes to the
+// store: SessionStoreFlushBatched (default, flush on result / size threshold)
+// or SessionStoreFlushEager (flush after every frame).
+func WithSessionStoreFlush(mode SessionStoreFlushMode) Option {
+	return func(o *Options) {
+		o.SessionStoreFlush = mode
+	}
+}
+
+// WithLoadTimeout sets the timeout (in milliseconds) for SessionStore load/list
+// calls during resume materialization. Defaults to 30000 (30s) when unset.
+func WithLoadTimeout(ms int) Option {
+	return func(o *Options) {
+		o.LoadTimeoutMS = ms
 	}
 }
 

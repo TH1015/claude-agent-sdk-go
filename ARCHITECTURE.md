@@ -105,7 +105,7 @@ Process termination follows: SIGTERM -> 5 second wait -> SIGKILL, ensuring clean
 ## Package Structure
 
 ```
-github.com/severity1/claude-agent-sdk-go
+github.com/TH1015/claude-agent-sdk-go
 ├── (root)              # Public API
 ├── internal/
 │   ├── cli/            # CLI discovery and command building

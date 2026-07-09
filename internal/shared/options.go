@@ -281,6 +281,22 @@ type Options struct {
 	// Stored as any to avoid import cycles with internal/control package.
 	// Use the claudecode package's WithHook option for type-safe configuration.
 	Hooks any `json:"-"` // Not serialized
+
+	// SessionStore mirrors session transcripts to an external backend so a
+	// session created on one host can be resumed on another. The concrete type
+	// is sessionstore.Store; stored as any to avoid an import cycle. Use the
+	// claudecode package's WithSessionStore option. Not serialized to the CLI —
+	// it controls SDK-side mirror/resume behavior.
+	SessionStore any `json:"-"`
+
+	// SessionStoreFlush controls how eagerly mirror writes are flushed:
+	// "batched" (default) or "eager". The concrete type is
+	// sessionstore.FlushMode. Not serialized.
+	SessionStoreFlush any `json:"-"`
+
+	// LoadTimeoutMS bounds SessionStore load/list calls during resume
+	// materialization. Defaults to 30000 (30s) when zero. Not serialized.
+	LoadTimeoutMS int `json:"-"`
 }
 
 // McpServerType represents the type of MCP server.

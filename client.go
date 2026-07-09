@@ -6,7 +6,7 @@ import (
 	"os"
 	"sync"
 
-	"github.com/severity1/claude-agent-sdk-go/internal/subprocess"
+	"github.com/TH1015/claude-agent-sdk-go/internal/subprocess"
 )
 
 const defaultSessionID = "default"
@@ -53,6 +53,9 @@ type ClientImpl struct {
 	msgChan         <-chan Message
 	errChan         <-chan error
 	streamErrChan   chan error // writable; receives errors from QueryStream goroutine
+	// sessionCleanup removes any temp resume-materialization dir created in
+	// Connect; invoked on Disconnect. Nil when no store resume was materialized.
+	sessionCleanup func()
 }
 
 // NewClient creates a new Client with the given options.
@@ -246,9 +249,20 @@ func (c *ClientImpl) Connect(ctx context.Context, _ ...StreamMessage) error {
 	if c.customTransport != nil {
 		c.transport = c.customTransport
 	} else {
+		// If a SessionStore is configured with resume/continue, materialize the
+		// session into a temp CLAUDE_CONFIG_DIR before building the transport.
+		// Also validates store option combinations (fail-fast).
+		cleanup, err := prepareSessionStore(ctx, c.options)
+		if err != nil {
+			return err
+		}
+		c.sessionCleanup = cleanup
+
 		// Honor WithCLIPath when set, otherwise fall back to auto-discovery.
 		cliPath, err := resolveCLIPath(c.options)
 		if err != nil {
+			cleanup()
+			c.sessionCleanup = nil
 			return fmt.Errorf("claude CLI not found: %w", err)
 		}
 
@@ -258,6 +272,10 @@ func (c *ClientImpl) Connect(ctx context.Context, _ ...StreamMessage) error {
 
 	// Connect the transport
 	if err := c.transport.Connect(ctx); err != nil {
+		if c.sessionCleanup != nil {
+			c.sessionCleanup()
+			c.sessionCleanup = nil
+		}
 		return fmt.Errorf("failed to connect transport: %w", err)
 	}
 
@@ -284,6 +302,10 @@ func (c *ClientImpl) Disconnect() error {
 	c.msgChan = nil
 	c.errChan = nil
 	c.streamErrChan = nil
+	if c.sessionCleanup != nil {
+		c.sessionCleanup()
+		c.sessionCleanup = nil
+	}
 	return nil
 }
 

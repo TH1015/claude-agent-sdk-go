@@ -21,6 +21,12 @@ const (
 	// Session heartbeat carrying rate-limit window state. Emitted on
 	// essentially every CLI session — even when nothing is constrained.
 	MessageTypeRateLimitEvent = "rate_limit_event"
+
+	// MessageTypeTranscriptMirror is emitted by the CLI when a SessionStore is
+	// configured, carrying a batch of transcript entries the SDK mirrors to the
+	// store. These frames are intercepted internally and never delivered to
+	// consumers.
+	MessageTypeTranscriptMirror = "transcript_mirror"
 )
 
 // Content block type constants
@@ -305,7 +311,7 @@ type RateLimitInfo struct {
 // nothing is constrained — most consumers can simply ignore the message
 // unless RateLimitInfo.Status differs from RateLimitStatusAllowed.
 //
-// See https://github.com/severity1/claude-agent-sdk-go/issues/126.
+// See https://github.com/TH1015/claude-agent-sdk-go/issues/126.
 type RateLimitEventMessage struct {
 	MessageType   string        `json:"type"`
 	RateLimitInfo RateLimitInfo `json:"rate_limit_info"`
@@ -364,4 +370,71 @@ type StreamEvent struct {
 // Type returns the message type for StreamEvent.
 func (m *StreamEvent) Type() string {
 	return MessageTypeStreamEvent
+}
+
+// TranscriptMirrorMessage is an internal frame the CLI emits (interleaved with
+// normal messages) when a SessionStore is configured. It carries a batch of
+// transcript entries already written to the local-disk transcript at FilePath;
+// the SDK forwards them to the store via the mirror batcher and does NOT
+// deliver this message to consumers.
+type TranscriptMirrorMessage struct {
+	FilePath string
+	Entries  []json.RawMessage
+}
+
+// Type returns the message type for TranscriptMirrorMessage.
+func (m *TranscriptMirrorMessage) Type() string {
+	return MessageTypeTranscriptMirror
+}
+
+// MirrorErrorSubtype is the subtype of the system message emitted when a mirror
+// append permanently fails after retries.
+const MirrorErrorSubtype = "mirror_error"
+
+// MirrorErrorMessage is a system message emitted to the consumer iterator when
+// a SessionStore append permanently fails (after retries) and the batch is
+// dropped. The local-disk transcript is still durable, so the session
+// continues; consumers can observe these to detect store-side data loss.
+//
+// It carries the standard system-message shape (Type "system", Subtype
+// "mirror_error") plus the SessionKey fields and the error text.
+type MirrorErrorMessage struct {
+	// ProjectKey / SessionID / Subpath identify the record whose append failed.
+	// They may be empty when the failing frame could not be mapped to a key.
+	ProjectKey string
+	SessionID  string
+	Subpath    string
+	// Err is the final adapter error text.
+	Err string
+}
+
+// Type returns the message type for MirrorErrorMessage.
+func (m *MirrorErrorMessage) Type() string {
+	return MessageTypeSystem
+}
+
+// Subtype returns the system message subtype ("mirror_error").
+func (m *MirrorErrorMessage) Subtype() string {
+	return MirrorErrorSubtype
+}
+
+// MarshalJSON renders MirrorErrorMessage as a system message with subtype
+// "mirror_error", matching the Python/TS wire shape {type:"system",
+// subtype:"mirror_error", ...}.
+func (m *MirrorErrorMessage) MarshalJSON() ([]byte, error) {
+	out := map[string]any{
+		"type":    MessageTypeSystem,
+		"subtype": MirrorErrorSubtype,
+		"error":   m.Err,
+	}
+	if m.ProjectKey != "" {
+		out["project_key"] = m.ProjectKey
+	}
+	if m.SessionID != "" {
+		out["session_id"] = m.SessionID
+	}
+	if m.Subpath != "" {
+		out["subpath"] = m.Subpath
+	}
+	return json.Marshal(out)
 }

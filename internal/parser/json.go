@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/severity1/claude-agent-sdk-go/internal/shared"
+	"github.com/TH1015/claude-agent-sdk-go/internal/shared"
 )
 
 const (
@@ -97,6 +97,8 @@ func (p *Parser) ParseMessage(data map[string]any) (shared.Message, error) {
 		return p.parseStreamEventMessage(data)
 	case shared.MessageTypeRateLimitEvent:
 		return p.parseRateLimitEventMessage(data)
+	case shared.MessageTypeTranscriptMirror:
+		return p.parseTranscriptMirrorMessage(data)
 	default:
 		return nil, shared.NewMessageParseError(
 			fmt.Sprintf("unknown message type: %s", msgType),
@@ -512,6 +514,34 @@ func (p *Parser) parseStreamEventMessage(data map[string]any) (*shared.StreamEve
 		Event:           event,
 		ParentToolUseID: parentToolUseID,
 	}, nil
+}
+
+// parseTranscriptMirrorMessage parses a transcript_mirror frame emitted by the
+// CLI when a SessionStore is configured. The frame carries a filePath and a
+// batch of raw transcript entries. Entries are kept as json.RawMessage so they
+// pass through to the store verbatim (deep-equal contract). Malformed frames
+// return a MessageParseError like any other message type.
+func (p *Parser) parseTranscriptMirrorMessage(data map[string]any) (*shared.TranscriptMirrorMessage, error) {
+	filePath, ok := data["filePath"].(string)
+	if !ok {
+		return nil, shared.NewMessageParseError("transcript_mirror missing filePath field", data)
+	}
+	entriesRaw, ok := data["entries"].([]any)
+	if !ok {
+		return nil, shared.NewMessageParseError("transcript_mirror missing entries field", data)
+	}
+	entries := make([]json.RawMessage, 0, len(entriesRaw))
+	for _, e := range entriesRaw {
+		// Re-marshal each entry back to raw bytes. The parser already decoded
+		// the whole line into map[string]any, so we round-trip the individual
+		// entries here; key ordering does not matter (deep-equal contract).
+		buf, err := json.Marshal(e)
+		if err != nil {
+			return nil, shared.NewMessageParseError("transcript_mirror entry not serializable", data)
+		}
+		entries = append(entries, json.RawMessage(buf))
+	}
+	return &shared.TranscriptMirrorMessage{FilePath: filePath, Entries: entries}, nil
 }
 
 // ParseMessages is a convenience function to parse multiple JSON lines.

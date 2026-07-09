@@ -8,7 +8,7 @@ This document provides a comprehensive comparison between the Go Agent SDK and t
 
 **Status: 100% Feature Parity Achieved**
 
-The Go SDK (`github.com/severity1/claude-agent-sdk-go`) implements all features from the Python SDK (`claude-agent-sdk`) with additional Go-idiomatic enhancements.
+The Go SDK (`github.com/TH1015/claude-agent-sdk-go`) implements all features from the Python SDK (`claude-agent-sdk`) with additional Go-idiomatic enhancements.
 
 | Category | Python SDK | Go SDK | Parity |
 |:---------|:-----------|:-------|:-------|
@@ -448,7 +448,7 @@ async for message in query(prompt="Hello", options=options):
 
 **Go:**
 ```go
-import "github.com/severity1/claude-agent-sdk-go"
+import "github.com/TH1015/claude-agent-sdk-go"
 
 iterator, err := claudecode.Query(ctx, "Hello",
     claudecode.WithSystemPrompt("You are an expert"),

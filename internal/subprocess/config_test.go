@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/severity1/claude-agent-sdk-go/internal/shared"
+	"github.com/TH1015/claude-agent-sdk-go/internal/shared"
 )
 
 // TestTransportEnvironmentSetup tests environment variable and platform compatibility

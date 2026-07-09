@@ -12,10 +12,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/severity1/claude-agent-sdk-go/internal/cli"
-	"github.com/severity1/claude-agent-sdk-go/internal/control"
-	"github.com/severity1/claude-agent-sdk-go/internal/parser"
-	"github.com/severity1/claude-agent-sdk-go/internal/shared"
+	"github.com/TH1015/claude-agent-sdk-go/internal/cli"
+	"github.com/TH1015/claude-agent-sdk-go/internal/control"
+	"github.com/TH1015/claude-agent-sdk-go/internal/parser"
+	"github.com/TH1015/claude-agent-sdk-go/internal/sessionstore"
+	"github.com/TH1015/claude-agent-sdk-go/internal/shared"
 )
 
 const (
@@ -64,6 +65,11 @@ type Transport struct {
 	protocol        *control.Protocol
 	protocolAdapter *ProtocolAdapter
 
+	// mirrorBatcher, when non-nil, receives intercepted transcript_mirror
+	// frames and mirrors them to a SessionStore. Set via SetMirrorBatcher
+	// before Connect. Flushed on each result message and closed on Close.
+	mirrorBatcher *sessionstore.TranscriptMirrorBatcher
+
 	// Control and cleanup
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -93,6 +99,25 @@ func NewWithPrompt(cliPath string, options *shared.Options, prompt string) *Tran
 		validator:  shared.NewStreamValidator(),
 		promptArg:  &prompt,
 	}
+}
+
+// SetMirrorBatcher attaches a SessionStore mirror batcher. Intercepted
+// transcript_mirror frames are forwarded to it instead of being delivered to
+// consumers. Must be called before Connect.
+func (t *Transport) SetMirrorBatcher(b *sessionstore.TranscriptMirrorBatcher) {
+	t.mirrorBatcher = b
+}
+
+// MsgChan exposes the internal message channel so the mirror batcher's
+// onError callback can inject mirror_error system messages. Returns nil before
+// Connect. Intended for internal wiring only.
+func (t *Transport) MsgChan() chan shared.Message {
+	return t.msgChan
+}
+
+// Ctx returns the transport's lifecycle context (nil before Connect).
+func (t *Transport) Ctx() context.Context {
+	return t.ctx
 }
 
 // newParser creates a parser using the buffer size from options, or the default.
@@ -171,6 +196,10 @@ func (t *Transport) Connect(ctx context.Context) error {
 	// Initialize channels
 	t.msgChan = make(chan shared.Message, channelBufferSize)
 	t.errChan = make(chan error, channelBufferSize)
+
+	// Construct the SessionStore mirror batcher (if configured) before the
+	// stdout goroutine starts intercepting transcript_mirror frames.
+	t.setupMirrorBatcher()
 
 	// Start I/O handling goroutines
 	t.wg.Add(1)
@@ -329,6 +358,12 @@ func (t *Transport) Close() error {
 	if t.protocolAdapter != nil {
 		_ = t.protocolAdapter.Close()
 		t.protocolAdapter = nil
+	}
+
+	// Flush and close the mirror batcher before cancelling context so the
+	// final batch reaches the store (Close uses its own background context).
+	if t.mirrorBatcher != nil {
+		t.mirrorBatcher.Close()
 	}
 
 	// Cancel context to stop goroutines

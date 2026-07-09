@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	claudecode "github.com/severity1/claude-agent-sdk-go"
+	claudecode "github.com/TH1015/claude-agent-sdk-go"
 )
 
 // TestIntegrationSessionRoundTrip runs a real Query against the Claude CLI,

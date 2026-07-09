@@ -7,7 +7,7 @@ Complete API reference for the Go Agent SDK, including all functions, types, and
 ## Installation
 
 ```bash
-go get github.com/severity1/claude-agent-sdk-go
+go get github.com/TH1015/claude-agent-sdk-go
 ```
 
 **Prerequisites:**
@@ -87,7 +87,7 @@ import (
     "fmt"
     "log"
 
-    "github.com/severity1/claude-agent-sdk-go"
+    "github.com/TH1015/claude-agent-sdk-go"
 )
 
 func main() {
@@ -2140,4 +2140,4 @@ var ErrNoMoreMessages = errors.New("no more messages")
 
 - [Feature Parity with Python SDK](parity.md)
 - [Examples Directory](../examples/README.md)
-- [pkg.go.dev Reference](https://pkg.go.dev/github.com/severity1/claude-agent-sdk-go)
+- [pkg.go.dev Reference](https://pkg.go.dev/github.com/TH1015/claude-agent-sdk-go)

@@ -1,3 +1,5 @@
-module github.com/severity1/claude-agent-sdk-go
+module github.com/TH1015/claude-agent-sdk-go
 
 go 1.18
+
+require golang.org/x/text v0.21.0

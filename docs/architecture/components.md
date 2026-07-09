@@ -5,7 +5,7 @@ This document describes the package organization and component responsibilities 
 ## Package Layout
 
 ```
-github.com/severity1/claude-agent-sdk-go
+github.com/TH1015/claude-agent-sdk-go
 ├── (root)                  # Public API layer
 │   ├── client.go           # Client interface and WithClient
 │   ├── query.go            # Query API and iterators
