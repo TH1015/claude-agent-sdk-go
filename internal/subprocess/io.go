@@ -7,8 +7,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/severity1/claude-agent-sdk-go/internal/parser"
-	"github.com/severity1/claude-agent-sdk-go/internal/shared"
+	"github.com/TH1015/claude-agent-sdk-go/internal/parser"
+	"github.com/TH1015/claude-agent-sdk-go/internal/sessionstore"
+	"github.com/TH1015/claude-agent-sdk-go/internal/shared"
 )
 
 // handleStdout processes stdout in a separate goroutine
@@ -75,6 +76,13 @@ func (t *Transport) handleStdout() {
 				continue
 			}
 
+			// Intercept transcript_mirror frames (forwarded to the
+			// SessionStore batcher, never delivered) and flush the batcher on
+			// result messages. Returns true when the message was consumed here.
+			if t.handleMirrorMessage(msg) {
+				continue
+			}
+
 			// Track regular message for stream validation
 			t.validator.TrackMessage(msg)
 
@@ -92,6 +100,32 @@ func (t *Transport) handleStdout() {
 		case <-t.ctx.Done():
 		}
 	}
+}
+
+// handleMirrorMessage intercepts SessionStore transcript_mirror frames and
+// flushes the mirror batcher on result messages. Returns true when the message
+// was a transcript_mirror frame (consumed here and not delivered to consumers);
+// result messages return false so they still reach the consumer after flushing.
+func (t *Transport) handleMirrorMessage(msg shared.Message) bool {
+	if mirror, ok := msg.(*shared.TranscriptMirrorMessage); ok {
+		if t.mirrorBatcher != nil {
+			entries := make([]sessionstore.Entry, len(mirror.Entries))
+			for i, e := range mirror.Entries {
+				entries[i] = sessionstore.Entry(e)
+			}
+			t.mirrorBatcher.Enqueue(mirror.FilePath, entries)
+		}
+		return true
+	}
+	// On a result message, explicitly flush the mirror batcher so the turn's
+	// transcript reaches the store before the consumer observes completion.
+	// Best-effort; failures surface as mirror_error messages via onError.
+	if t.mirrorBatcher != nil {
+		if _, ok := msg.(*shared.ResultMessage); ok {
+			t.mirrorBatcher.Flush(t.ctx)
+		}
+	}
+	return false
 }
 
 // handleStderrCallback processes stderr in a separate goroutine.

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/severity1/claude-agent-sdk-go/internal/shared"
+	"github.com/TH1015/claude-agent-sdk-go/internal/shared"
 )
 
 // TestFormatInitError tests the error message formatting for early init failures.

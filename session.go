@@ -1,7 +1,7 @@
 package claudecode
 
 import (
-	"github.com/severity1/claude-agent-sdk-go/internal/session"
+	"github.com/TH1015/claude-agent-sdk-go/internal/session"
 )
 
 // SDKSessionInfo holds metadata about a session.

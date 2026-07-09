@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/severity1/claude-agent-sdk-go/internal/cli"
-	"github.com/severity1/claude-agent-sdk-go/internal/subprocess"
+	"github.com/TH1015/claude-agent-sdk-go/internal/cli"
+	"github.com/TH1015/claude-agent-sdk-go/internal/subprocess"
 )
 
 // ErrNoMoreMessages indicates the message iterator has no more messages.
@@ -18,14 +18,31 @@ var ErrNoMoreMessages = errors.New("no more messages")
 func Query(ctx context.Context, prompt string, opts ...Option) (MessageIterator, error) {
 	options := NewOptions(opts...)
 
+	// If a SessionStore is configured with resume/continue, materialize the
+	// session into a temp CLAUDE_CONFIG_DIR before building the transport so the
+	// CLI can resume it. Also validates store option combinations (fail-fast).
+	cleanup, err := prepareSessionStore(ctx, options)
+	if err != nil {
+		return nil, err
+	}
+
 	// For one-shot queries, create a transport that passes prompt as CLI argument
 	// This matches the Python SDK behavior where prompt is passed via --print flag
 	transport, err := createQueryTransport(prompt, options)
 	if err != nil {
+		cleanup()
 		return nil, fmt.Errorf("failed to create query transport: %w", err)
 	}
 
-	return queryWithTransportAndOptions(ctx, prompt, transport, options)
+	iter, err := queryWithTransportAndOptions(ctx, prompt, transport, options)
+	if err != nil {
+		cleanup()
+		return nil, err
+	}
+	if qi, ok := iter.(*queryIterator); ok {
+		qi.cleanup = cleanup
+	}
+	return iter, nil
 }
 
 // QueryWithTransport executes a query with a custom transport.
@@ -76,6 +93,8 @@ type queryIterator struct {
 	mu        sync.Mutex
 	closed    bool
 	closeOnce sync.Once
+	// cleanup removes any temp resume-materialization dir; nil-safe via Close.
+	cleanup func()
 }
 
 func (qi *queryIterator) Next(_ context.Context) (Message, error) {
@@ -126,6 +145,9 @@ func (qi *queryIterator) Close() error {
 		qi.mu.Unlock()
 		if qi.transport != nil {
 			err = qi.transport.Close()
+		}
+		if qi.cleanup != nil {
+			qi.cleanup()
 		}
 	})
 	return err

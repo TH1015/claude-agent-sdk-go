@@ -12,7 +12,7 @@ Thank you for your interest in contributing to the Claude Agent SDK for Go!
 
 ```bash
 # Clone the repository
-git clone https://github.com/severity1/claude-agent-sdk-go.git
+git clone https://github.com/TH1015/claude-agent-sdk-go.git
 cd claude-agent-sdk-go
 
 # Verify installation
@@ -329,5 +329,5 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for system design documentation.
 
 ## Questions?
 
-- Open a [GitHub Issue](https://github.com/severity1/claude-agent-sdk-go/issues)
+- Open a [GitHub Issue](https://github.com/TH1015/claude-agent-sdk-go/issues)
 - Check existing [documentation](docs/)

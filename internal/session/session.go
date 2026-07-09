@@ -19,6 +19,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/TH1015/claude-agent-sdk-go/internal/sessionstore"
 )
 
 // errSessionNotFound is a sentinel error returned by findSessionFile when
@@ -309,18 +311,15 @@ func getWorktreePaths(dir string) []string {
 	return paths
 }
 
-// encodeCwd encodes a directory path by replacing non-alphanumeric characters with "-".
+// encodeCwd encodes a directory path into its project-directory name by
+// replacing non-alphanumeric characters with "-".
+//
+// It delegates to sanitizePath so long paths (>200 chars) receive the same
+// truncate-plus-djb2-hash suffix the CLI produces, keeping local-disk project
+// directory names aligned with both the CLI and store project keys. For short
+// ASCII paths the output is identical to a plain per-character replacement.
 func encodeCwd(cwd string) string {
-	var b strings.Builder
-	b.Grow(len(cwd))
-	for _, r := range cwd {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
-			b.WriteRune(r)
-		} else {
-			b.WriteByte('-')
-		}
-	}
-	return b.String()
+	return sessionstore.SanitizePath(cwd)
 }
 
 // projectDirsForOpts returns the project directories to search based on options.

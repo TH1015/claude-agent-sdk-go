@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/severity1/claude-agent-sdk-go"
+	"github.com/TH1015/claude-agent-sdk-go"
 )
 
 func main() {

@@ -6,10 +6,10 @@
 
 <div align="center">
 
-[![CI](https://github.com/severity1/claude-agent-sdk-go/actions/workflows/ci.yml/badge.svg)](https://github.com/severity1/claude-agent-sdk-go/actions/workflows/ci.yml)
-[![Go Reference](https://pkg.go.dev/badge/github.com/severity1/claude-agent-sdk-go.svg)](https://pkg.go.dev/github.com/severity1/claude-agent-sdk-go)
-[![Go Report Card](https://goreportcard.com/badge/github.com/severity1/claude-agent-sdk-go)](https://goreportcard.com/report/github.com/severity1/claude-agent-sdk-go)
-[![codecov](https://codecov.io/gh/severity1/claude-agent-sdk-go/branch/main/graph/badge.svg)](https://codecov.io/gh/severity1/claude-agent-sdk-go)
+[![CI](https://github.com/TH1015/claude-agent-sdk-go/actions/workflows/ci.yml/badge.svg)](https://github.com/TH1015/claude-agent-sdk-go/actions/workflows/ci.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/TH1015/claude-agent-sdk-go.svg)](https://pkg.go.dev/github.com/TH1015/claude-agent-sdk-go)
+[![Go Report Card](https://goreportcard.com/badge/github.com/TH1015/claude-agent-sdk-go)](https://goreportcard.com/report/github.com/TH1015/claude-agent-sdk-go)
+[![codecov](https://codecov.io/gh/TH1015/claude-agent-sdk-go/branch/main/graph/badge.svg)](https://codecov.io/gh/TH1015/claude-agent-sdk-go)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 </div>
@@ -26,7 +26,7 @@ Unofficial Go SDK for Claude Code CLI integration. Build production-ready applic
 ## Installation
 
 ```bash
-go get github.com/severity1/claude-agent-sdk-go
+go get github.com/TH1015/claude-agent-sdk-go
 ```
 
 **Prerequisites:** Go 1.18+, Node.js, Claude Code (`npm install -g @anthropic-ai/claude-code`)
@@ -57,7 +57,7 @@ import (
     "fmt"
     "log"
 
-    "github.com/severity1/claude-agent-sdk-go"
+    "github.com/TH1015/claude-agent-sdk-go"
 )
 
 func main() {
@@ -133,7 +133,7 @@ import (
     "fmt"
     "log"
 
-    "github.com/severity1/claude-agent-sdk-go"
+    "github.com/TH1015/claude-agent-sdk-go"
 )
 
 func main() {
@@ -204,7 +204,7 @@ import (
     "fmt"
     "log"
 
-    "github.com/severity1/claude-agent-sdk-go"
+    "github.com/TH1015/claude-agent-sdk-go"
 )
 
 func main() {
@@ -270,6 +270,139 @@ func traditionalClientExample() {
 }
 ```
 </details>
+
+### Persisting Sessions to External Storage (SessionStore)
+
+By default the SDK writes session transcripts to local JSONL files under
+`~/.claude/projects/`. A `SessionStore` adapter mirrors those transcripts to
+your own backend (Redis, S3, a database, ...) so a session created on one host
+can be resumed on another — useful for serverless functions, autoscaled
+workers, and CI runners that don't share a filesystem.
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+
+    "github.com/TH1015/claude-agent-sdk-go"
+)
+
+func main() {
+    ctx := context.Background()
+
+    // A development/testing store. For production use a Redis/S3/DB adapter
+    // (see examples/session-stores/).
+    store := claudecode.NewInMemorySessionStore()
+
+    // First query: transcript is mirrored to the store. Capture the session ID.
+    var sessionID string
+    iter, err := claudecode.Query(ctx, "List the Go files under internal/",
+        claudecode.WithSessionStore(store),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    for {
+        msg, err := iter.Next(ctx)
+        if err != nil {
+            break
+        }
+        if r, ok := msg.(*claudecode.ResultMessage); ok {
+            sessionID = r.SessionID
+        }
+    }
+    _ = iter.Close()
+
+    // Resume from the store (possibly on a different host). The agent has full
+    // context from the first call.
+    iter2, err := claudecode.Query(ctx, "Summarize what those files do",
+        claudecode.WithSessionStore(store),
+        claudecode.WithResume(sessionID),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    for {
+        msg, err := iter2.Next(ctx)
+        if err != nil {
+            break
+        }
+        if r, ok := msg.(*claudecode.ResultMessage); ok && r.Result != nil {
+            fmt.Println(*r.Result)
+        }
+    }
+    _ = iter2.Close()
+}
+```
+
+**The `SessionStore` interface.** Implement the two required methods; add the
+optional capability interfaces to unlock more operations:
+
+```go
+// Required
+type SessionStore interface {
+    Append(ctx context.Context, key SessionKey, entries []SessionStoreEntry) error
+    Load(ctx context.Context, key SessionKey) ([]SessionStoreEntry, error)
+}
+
+// Optional (probed via type assertion):
+//   SessionLister        — ListSessions()        (continue-conversation resume, ListSessionsFromStore)
+//   SessionDeleter       — Delete()              (DeleteSessionViaStore; main-key delete must cascade to subkeys)
+//   SessionSubkeyLister  — ListSubkeys()         (subagent resume, ListSubagentsFromStore)
+//   SessionSummaryLister — ListSessionSummaries() (fast path for ListSessionsFromStore)
+```
+
+Entries are opaque, JSON-safe blobs (`json.RawMessage`). `Load` must return
+entries deeply equal to what `Append` received (byte-equal serialization is not
+required — a backend that reorders JSON object keys is fine).
+
+**Behavior notes.**
+
+- **Dual-write, not replacement.** The CLI always writes the local transcript
+  first; the SDK then forwards each batch to `Append`. `WithSessionStore` cannot
+  be combined with `WithEnableFileCheckpointing`.
+- **Mirror writes are best-effort.** A failing `Append` is retried up to 3 times
+  with backoff (timeouts are not retried). On permanent failure the SDK emits a
+  `*MirrorErrorMessage` (a `system` message, subtype `mirror_error`) into the
+  message stream and drops the batch — the local transcript is still durable.
+  Because a retried batch may re-deliver entries, adapters should dedupe by
+  `entry.uuid`.
+- **Fork is not a byte copy.** `ForkSessionViaStore` rewrites every `sessionId`
+  and remaps message UUIDs, so a storage-layer copy is not sufficient.
+
+**Store-backed operations.** Read and mutate stored sessions without touching
+local disk:
+
+```go
+infos, _ := claudecode.ListSessionsFromStore(ctx, store, dir, 0, 0)
+info,  _ := claudecode.GetSessionInfoFromStore(ctx, store, sessionID, dir)
+msgs,  _ := claudecode.GetSessionMessagesFromStore(ctx, store, sessionID, dir, 0, 0)
+ids,   _ := claudecode.ListSubagentsFromStore(ctx, store, sessionID, dir)
+sub,   _ := claudecode.GetSubagentMessagesFromStore(ctx, store, sessionID, agentID, dir, 0, 0)
+
+_        = claudecode.RenameSessionViaStore(ctx, store, sessionID, "New title", dir)
+_        = claudecode.TagSessionViaStore(ctx, store, sessionID, "experiment", dir, false)
+_        = claudecode.DeleteSessionViaStore(ctx, store, sessionID, dir)
+fork, _ := claudecode.ForkSessionViaStore(ctx, store, sessionID, dir, "", "")
+
+// Migrate an existing local session into the store.
+_        = claudecode.ImportSessionToStore(ctx, sessionID, store, dir, true, 0)
+```
+
+**Reference adapter + conformance suite.** A runnable Redis adapter lives at
+[`examples/session-stores/redis`](examples/session-stores/redis). Validate any
+adapter against the shared behavioral contract:
+
+```go
+import "github.com/TH1015/claude-agent-sdk-go/sessionstore/conformance"
+
+func TestMyStoreConformance(t *testing.T) {
+    conformance.RunConformance(t, func() claudecode.SessionStore { return NewMyStore() })
+}
+```
 
 ## Tool Integration & External Services
 
@@ -379,7 +512,7 @@ Available agent models: `AgentModelSonnet`, `AgentModelOpus`, `AgentModelHaiku`,
 - [Contributing](CONTRIBUTING.md) - Development setup and guidelines
 - [API Reference](docs/reference.md) - Complete SDK reference with all types, functions, and examples
 - [Python SDK Parity](docs/parity.md) - Feature comparison with the Python SDK
-- [pkg.go.dev](https://pkg.go.dev/github.com/severity1/claude-agent-sdk-go) - GoDoc reference
+- [pkg.go.dev](https://pkg.go.dev/github.com/TH1015/claude-agent-sdk-go) - GoDoc reference
 
 ## Advanced Features
 

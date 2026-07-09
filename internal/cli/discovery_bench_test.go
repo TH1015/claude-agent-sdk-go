@@ -3,7 +3,7 @@ package cli
 import (
 	"testing"
 
-	"github.com/severity1/claude-agent-sdk-go/internal/shared"
+	"github.com/TH1015/claude-agent-sdk-go/internal/shared"
 )
 
 // sink prevents dead code elimination by the compiler.
