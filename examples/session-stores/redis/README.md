@@ -46,9 +46,16 @@ See `main.go` (build tag `ignore`) for a complete runnable demo.
 ## Idempotency
 
 Mirror writes are best-effort: a failed `Append` is retried, so a batch may be
-re-delivered. Production adapters should dedupe by each entry's `uuid`. This
-reference keeps `RPUSH` simple; to dedupe, maintain a per-record `SET` of seen
-UUIDs and skip entries already present before pushing.
+re-delivered. This adapter dedupes by each entry's `uuid` — it keeps a
+per-record `SET` (`<prefix>:e:{...}:seen`) and uses `SADD` (which returns 1 only
+for a first-seen member) to skip entries already written before `RPUSH`. Entries
+without a `uuid` (tag / custom-title markers, `agent_metadata`) are always
+appended, matching the SDK's contract that only uuid-bearing entries are dedup
+keys. `Delete` cleans up the seen-set alongside the entries list.
+
+Dedup is best-effort under true concurrency (the seen-check and the push are not
+one atomic unit), but the mirror batcher serializes appends per record, so the
+retry case this guards is sequential.
 
 ## Running the conformance suite
 

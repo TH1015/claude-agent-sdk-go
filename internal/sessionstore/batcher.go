@@ -143,11 +143,18 @@ func (b *TranscriptMirrorBatcher) Close() {
 	b.wg.Wait()
 }
 
-// drain detaches the pending buffer, then (under flushMu, for ordering) sends
-// each coalesced batch. Never panics; adapter and onError errors are contained.
+// drain sends the pending buffer to the store, coalesced by file path, in
+// append order. Never panics; adapter and onError errors are contained.
+//
+// flushMu is acquired BEFORE detaching the pending buffer so concurrent drains
+// (eager/threshold-triggered background flushes plus an explicit Flush) can
+// never reorder a transcript: whichever goroutine wins flushMu also detaches
+// and writes the earliest-accumulated batch first. Enqueue only takes the
+// separate b.mu, so it keeps accumulating into a fresh buffer while a flush is
+// in flight — the next drainer picks that up, still in order.
 func (b *TranscriptMirrorBatcher) drain(ctx context.Context) {
-	// Detach the buffer before acquiring flushMu so Enqueue can keep
-	// accumulating into a fresh buffer while a prior flush is in flight.
+	b.flushMu.Lock()
+
 	b.mu.Lock()
 	items := b.pending
 	b.pending = nil
@@ -156,11 +163,11 @@ func (b *TranscriptMirrorBatcher) drain(ctx context.Context) {
 	b.mu.Unlock()
 
 	if len(items) == 0 {
+		b.flushMu.Unlock()
 		return
 	}
 
 	var errs []mirrorFailure
-	b.flushMu.Lock()
 	b.doFlush(ctx, items, &errs)
 	b.flushMu.Unlock()
 

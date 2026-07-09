@@ -2,7 +2,9 @@ package sessionstore
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -203,3 +205,73 @@ func TestBatcherDropsFrameOutsideProjectsDir(t *testing.T) {
 		t.Fatal("dropping an out-of-dir frame should not report a mirror error")
 	}
 }
+
+// TestBatcherConcurrentFlushNoLossNoDup exercises many concurrent drains
+// (eager mode spawns a background flush per enqueue) plus interleaved explicit
+// flushes and a Close, asserting the store receives every entry exactly once
+// with no loss, no duplication, and no data race (run with -race).
+//
+// Note: this is a concurrency-safety guard, not a differential test for the
+// detach-under-flushMu ordering fix. The reorder window in the old code
+// (detach, then race for flushMu) is a back-to-back pair with no blocking point
+// between, so it cannot be forced deterministically from a black-box test. The
+// fix is structural: drain now acquires flushMu BEFORE detaching, making each
+// drainer's detach+flush atomic so append order is preserved by construction.
+func TestBatcherConcurrentFlushNoLossNoDup(t *testing.T) {
+	store := &orderingStore{}
+	b := NewTranscriptMirrorBatcher(store, testProjectsDir, nil, FlushModeEager)
+	p := mainTranscriptPath("proj", "s1")
+
+	const n = 300
+	for i := 0; i < n; i++ {
+		b.Enqueue(p, []Entry{Entry(fmt.Sprintf(`{"uuid":"u%04d","seq":%d}`, i, i))})
+		if i%11 == 0 {
+			b.Flush(context.Background())
+		}
+	}
+	b.Close()
+
+	got := store.seqs()
+	if len(got) != n {
+		t.Fatalf("expected %d entries, got %d (loss or duplication)", n, len(got))
+	}
+	seen := make(map[int]bool, n)
+	for _, seq := range got {
+		if seq < 0 || seq >= n {
+			t.Fatalf("out-of-range seq %d", seq)
+		}
+		if seen[seq] {
+			t.Fatalf("duplicate seq %d", seq)
+		}
+		seen[seq] = true
+	}
+}
+
+// orderingStore records the "seq" field of every appended entry in append order.
+type orderingStore struct {
+	mu   sync.Mutex
+	seen []int
+}
+
+func (s *orderingStore) Append(_ context.Context, _ SessionKey, entries []Entry) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, e := range entries {
+		var m struct {
+			Seq int `json:"seq"`
+		}
+		_ = jsonUnmarshal(e, &m)
+		s.seen = append(s.seen, m.Seq)
+	}
+	return nil
+}
+
+func (s *orderingStore) Load(context.Context, SessionKey) ([]Entry, error) { return nil, nil }
+
+func (s *orderingStore) seqs() []int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]int(nil), s.seen...)
+}
+
+func jsonUnmarshal(e Entry, v any) error { return json.Unmarshal(e, v) }
