@@ -39,9 +39,19 @@ func ImportSessionToStore(ctx context.Context, sessionID string, store sessionst
 	if err != nil {
 		return fmt.Errorf("session %s not found", sessionID)
 	}
-	// Key under the on-disk project directory name (matches
-	// FilePathToSessionKey / the mirror batcher).
-	projectKey := filepath.Base(filepath.Dir(resolved))
+	// The destination project_key MUST match what the *_from_store readers and
+	// resume materialization compute for the same directory, otherwise an
+	// imported session is written under one key and looked up under another.
+	// Readers use ProjectKeyForDirectory (realpath + NFC canonicalization), so
+	// when a directory is given we key the same way. When no directory is given
+	// (all-projects search) fall back to the on-disk directory name, which is
+	// already the CLI's canonical encoding for the project the file was found in.
+	var projectKey string
+	if directory != "" {
+		projectKey = sessionstore.ProjectKeyForDirectory(directory)
+	} else {
+		projectKey = filepath.Base(filepath.Dir(resolved))
+	}
 	if batchSize <= 0 {
 		batchSize = importMaxBatchEntries
 	}

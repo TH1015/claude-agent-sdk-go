@@ -257,6 +257,13 @@ func addSessionFlags(cmd []string, options *shared.Options) []string {
 	if options.ForkSession {
 		cmd = append(cmd, "--fork-session")
 	}
+	// When a SessionStore is configured, tell the CLI to emit transcript_mirror
+	// frames so the SDK can mirror the transcript to the store. Without this the
+	// CLI never produces mirror frames and the store stays empty (Python SDK
+	// parity: appends --session-mirror when session_store is not None).
+	if options.SessionStore != nil {
+		cmd = append(cmd, "--session-mirror")
+	}
 	// Always pass --setting-sources (Python SDK parity)
 	// Empty slice results in empty string value
 	sourcesValue := ""
